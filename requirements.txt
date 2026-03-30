@@ -1,0 +1,4 @@
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+litellm==1.82.6
+pydantic-settings==2.*
