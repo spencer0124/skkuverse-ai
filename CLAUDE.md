@@ -30,6 +30,8 @@ app/
 
 429 발생 → 1회 실패 후 5분 쿨다운 → 다음 provider로 fallback.
 공지 요약은 `response_format` (structured output)으로 JSON 스키마 강제.
+details 필드는 flat schema — type과 무관하게 모든 필드(target/action/location/host/impact) 사용 가능, 해당 없으면 null.
+후처리: `_guard_year`(게시일 ±1년 벗어나는 연도 교정), `_strip_fillers`(filler 패턴 null 교정).
 
 ## 개발 명령어
 
@@ -49,7 +51,7 @@ curl -s http://127.0.0.1:4000/v1/chat/completions \
   -d '{"model":"llm","messages":[{"role":"user","content":"Hello"}],"max_tokens":50}'
 curl -s http://127.0.0.1:4000/api/notices/summarize \
   -H "Content-Type: application/json" \
-  -d '{"title":"등록금 납부 안내","category":"학사","cleanText":"납부기간: 2026.3.2~3.6 18:00. 재학생 대상."}'
+  -d '{"title":"등록금 납부 안내","category":"학사","cleanText":"납부기간: 2026.3.2~3.6 18:00. 재학생 대상.","date":"2026-03-01"}'
 ```
 
 ## 통신 방식

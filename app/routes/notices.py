@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError, model_validator
@@ -22,40 +23,56 @@ SYSTEM_PROMPT = """\
 - event: 특정 날짜에 열리는 행사·세미나·설명회 (별도 신청 불필요한 경우)
 - informational: 시설 변경, 시스템 점검, 정책 안내 등
 
+주의: 채용설명회라도 사전등록·신청이 필요하면 반드시 action_required. event는 참석만 하면 되는 순수 행사에만 사용.
+
 ## 날짜/시간 규칙
 
-- startDate: 시작일. endDate: 마감일 또는 종료일 (신청 마감, 납부 기한, 행사 종료 등 모두 포함).
+- startDate: 활동·행사·신청이 시작되는 날.
+- endDate: 마감·종료·만료일.
+- 마감일만 있고 시작일이 불명확하면 startDate는 null, endDate만 채울 것.
+- 당일 행사(설명회, 특강 등)는 startDate와 endDate가 같아도 정상.
 - 날짜는 YYYY-MM-DD, 시간은 HH:mm (24시간). 해당 정보가 없으면 null.
+- 본문에 연도가 명시되어 있지 않으면 게시일의 연도를 사용하세요.
 
-## 타입별 details
+## details
 
-action_required:
-  - target: 대상. "전체 학생", "재학생" 등 뻔하면 null
-  - action: 구체적으로 해야 할 일
+모든 타입에서 모든 필드를 사용할 수 있음. 해당 정보가 본문에 명시적으로 없으면 반드시 null. 추측하거나 일반론을 쓰지 마세요.
 
-event:
-  - location: 장소 (캠퍼스명 포함)
-  - host: 주최
-
-informational:
-  - what: 무엇이 바뀌는지
-  - impact: 학생에게 미치는 영향 또는 대안
-
-해당 타입이 아닌 details 필드는 null.
+- target: 대상 (누구에게 해당하는지). "전체 학생", "재학생" 등 뻔하면 null
+- action: **학생이** 구체적으로 해야 할 일. 학교·기관의 조치는 action이 아님
+- location: 구체적 건물명·호실·주소만. "집", "온라인", "각자", "비대면" 등 비특정 장소는 반드시 null
+- host: 주관/주최
+- impact: 학생에게 미치는 영향 또는 대안
 
 ## oneLiner / summary
 
 - oneLiner: 50자 이내. "안내", "공고" 빼고, 날짜 포함. 제목을 그대로 쓰지 말고 날짜+핵심 압축.
-- summary: 2~4문장. 해요체. 예: "~할 수 있어요.", "~진행돼요." 학생에게 중요한 정보 위주."""
+- summary: 2~4문장. 해요체. 예: "~할 수 있어요.", "~진행돼요." 학생에게 중요한 정보 위주.
+
+## 예시
+
+입력: 제목: 안전교육 이수 안내 / 본문: 전체 재학생은 LMS에서 안전교육을 4월 20일까지 이수해야 합니다.
+```json
+{"type":"action_required","oneLiner":"2026-04-20까지 안전교육 이수 필수","summary":"전체 재학생은 LMS에서 안전교육을 4월 20일까지 이수해야 해요. 미이수 시 수강신청이 제한될 수 있어요.","startDate":null,"startTime":null,"endDate":"2026-04-20","endTime":null,"details":{"target":"전체 재학생","action":"LMS에서 안전교육 이수","location":null,"host":null,"impact":null}}
+```
+
+입력: 제목: 2026-1학기 교육과정 로드맵 공개 / 본문: 교육과정 로드맵이 학과 홈페이지에 게시되었습니다.
+```json
+{"type":"informational","oneLiner":"2026-1학기 교육과정 로드맵 공개","summary":"2026-1학기 교육과정 로드맵이 학과 홈페이지에 공개됐어요. 수강 계획 수립 시 참고하세요.","startDate":null,"startTime":null,"endDate":null,"endTime":null,"details":{"target":null,"action":null,"location":null,"host":null,"impact":"수강 계획 수립 시 참고"}}
+```
+
+입력: 제목: 삼성전자 채용설명회 / 본문: 삼성전자에서 이공계 재학생 대상 채용설명회를 4월 15일 14시에 경영관 33101호에서 진행합니다. 캠퍼스 리크루팅 포털에서 사전 신청 필수.
+```json
+{"type":"event","oneLiner":"2026-04-15 14:00 삼성전자 채용설명회","summary":"삼성전자에서 이공계 재학생 대상 채용설명회를 4월 15일 14시에 경영관 33101호에서 진행해요. 캠퍼스 리크루팅 포털에서 사전 신청이 필요해요.","startDate":"2026-04-15","startTime":"14:00","endDate":"2026-04-15","endTime":null,"details":{"target":"이공계 재학생","action":"사전 신청 필수 (캠퍼스 리크루팅 포털)","location":"경영관 33101호","host":"삼성전자","impact":null}}
+```"""
 
 
 class NoticeDetails(BaseModel):
-    """타입별 고유 메타. 해당 타입이 아닌 필드는 null."""
+    """공지 메타. 모든 타입에서 사용 가능, 해당 없으면 null."""
     target: str | None = None
     action: str | None = None
     location: str | None = None
     host: str | None = None
-    what: str | None = None
     impact: str | None = None
 
 
@@ -89,6 +106,7 @@ class SummarizeRequest(BaseModel):
     title: str
     category: str = ""
     cleanText: str
+    date: str | None = None
 
 
 class SummarizeResponse(NoticeSummary):
@@ -113,9 +131,48 @@ def _parse_llm_json(raw: str) -> dict | None:
         return None
 
 
+_FILLER_PATTERNS = re.compile(
+    r"^(없음|해당\s*없음|특별한\s*(영향|사항)\s*없음|없습니다|N/?A)$",
+    re.IGNORECASE,
+)
+
+
+def _guard_year(summary: NoticeSummary, pub_date: str | None) -> NoticeSummary:
+    """게시일 ±1년 벗어나는 연도를 교정. 범위 안이면 no-op. pub_date 없으면 no-op."""
+    if not pub_date:
+        return summary
+    pub_year = datetime.strptime(pub_date, "%Y-%m-%d").year
+
+    for field in ("startDate", "endDate"):
+        val = getattr(summary, field, None)
+        if not val:
+            continue
+        try:
+            dt = datetime.strptime(val, "%Y-%m-%d")
+        except ValueError:
+            continue
+        if abs(dt.year - pub_year) <= 1:
+            continue
+        corrected = dt.replace(year=pub_year)
+        setattr(summary, field, corrected.strftime("%Y-%m-%d"))
+
+    return summary
+
+
+def _strip_fillers(summary: NoticeSummary) -> NoticeSummary:
+    """details 필드 중 filler 패턴을 null로 교정."""
+    if summary.details:
+        for field_name in summary.details.model_fields:
+            val = getattr(summary.details, field_name)
+            if isinstance(val, str) and _FILLER_PATTERNS.match(val.strip()):
+                setattr(summary.details, field_name, None)
+    return summary
+
+
 @router.post("/api/notices/summarize", response_model=SummarizeResponse)
 async def summarize_notice(req: SummarizeRequest):
-    user_prompt = f"제목: {req.title}\n카테고리: {req.category}\n본문:\n{req.cleanText}"
+    date_line = f"게시일: {req.date}\n" if req.date else ""
+    user_prompt = f"{date_line}제목: {req.title}\n카테고리: {req.category}\n본문:\n{req.cleanText}"
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -143,9 +200,10 @@ async def summarize_notice(req: SummarizeRequest):
         parsed = _parse_llm_json(raw)
         if parsed is None:
             if last_valid_parsed is not None:
-                return SummarizeResponse(
-                    **_safe_summary(last_valid_parsed), model=model_name
-                )
+                summary = NoticeSummary(**_safe_summary(last_valid_parsed))
+                summary = _guard_year(summary, req.date)
+                summary = _strip_fillers(summary)
+                return SummarizeResponse(**summary.model_dump(), model=model_name)
             return SummarizeResponse(
                 oneLiner="", summary="", type="unknown",
                 details=NoticeDetails(), model=model_name,
@@ -155,6 +213,8 @@ async def summarize_notice(req: SummarizeRequest):
 
         try:
             summary = NoticeSummary.model_validate(parsed)
+            summary = _guard_year(summary, req.date)
+            summary = _strip_fillers(summary)
             return SummarizeResponse(**summary.model_dump(), model=model_name)
         except ValidationError as ve:
             if attempt < MAX_FORMAT_RETRIES:
@@ -170,9 +230,10 @@ async def summarize_notice(req: SummarizeRequest):
                 })
 
     # 재시도 소진 — 날짜 빼고 반환
-    return SummarizeResponse(
-        **_safe_summary(last_valid_parsed), model=model_name
-    )
+    summary = NoticeSummary(**_safe_summary(last_valid_parsed))
+    summary = _guard_year(summary, req.date)
+    summary = _strip_fillers(summary)
+    return SummarizeResponse(**summary.model_dump(), model=model_name)
 
 
 def _safe_summary(parsed: dict) -> dict:
