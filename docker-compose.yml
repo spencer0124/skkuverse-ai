@@ -5,6 +5,8 @@ services:
       - "127.0.0.1:4000:4000"
     env_file:
       - .env
+    environment:
+      - TZ=Asia/Seoul
     restart: unless-stopped
     mem_limit: 512m
     cpus: 0.5
