@@ -19,16 +19,17 @@ app/
 └── routes/
     ├── health.py   ← GET /health
     ├── chat.py     ← POST /v1/chat/completions (범용 OpenAI 호환)
-    └── notices.py  ← POST /api/notices/summarize (공지 3줄 요약)
+    └── notices.py  ← POST /api/notices/summarize (공지 요약 + 타입 분류)
 ```
 
-## LLM Provider Fallback (order 순)
+## LLM Provider Fallback (weight 순)
 
-1. OpenAI gpt-4o-mini (데이터 공유 10M tok/일 무료)
-2. Cerebras qwen-3-235b-a22b-instruct-2507 (무료 티어)
-3. Groq qwen/qwen3-32b (무료 티어)
+1. OpenAI gpt-4.1-mini (weight 100, 데이터 공유 인센티브 2.5M tok/일 무료 Tier 1-2, budget cap $0.60/일)
+2. Cerebras qwen-3-235b-a22b-instruct-2507 (weight 2, 무료 티어)
+3. Groq qwen/qwen3-32b (weight 1, 무료 티어)
 
 429 발생 → 1회 실패 후 5분 쿨다운 → 다음 provider로 fallback.
+공지 요약은 `response_format` (structured output)으로 JSON 스키마 강제.
 
 ## 개발 명령어
 
@@ -48,7 +49,7 @@ curl -s http://127.0.0.1:4000/v1/chat/completions \
   -d '{"model":"llm","messages":[{"role":"user","content":"Hello"}],"max_tokens":50}'
 curl -s http://127.0.0.1:4000/api/notices/summarize \
   -H "Content-Type: application/json" \
-  -d '{"content":"2026학년도 1학기 등록금 납부 안내..."}'
+  -d '{"title":"등록금 납부 안내","category":"학사","cleanText":"납부기간: 2026.3.2~3.6 18:00. 재학생 대상."}'
 ```
 
 ## 통신 방식
