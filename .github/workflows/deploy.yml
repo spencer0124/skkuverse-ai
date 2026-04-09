@@ -17,8 +17,21 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.AI_DEPLOY_PATH }}
-            git pull origin main
             test -f .env || { echo ".env missing"; exit 1; }
+
+            PREV_COMMIT=$(git rev-parse HEAD)
+            git pull origin main
+
             docker compose up -d --build
-            sleep 10
-            curl -f http://localhost:4000/health || exit 1
+
+            HEALTHY=false
+            for i in $(seq 1 6); do sleep 5; curl -sf http://localhost:4000/health && HEALTHY=true && break; done
+
+            if [ "$HEALTHY" = false ]; then
+              echo "Health check failed — rolling back to $PREV_COMMIT"
+              git checkout "$PREV_COMMIT"
+              docker compose up -d --build
+              sleep 10
+              curl -sf http://localhost:4000/health || echo "WARNING: rollback also failed"
+              exit 1
+            fi
