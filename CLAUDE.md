@@ -24,7 +24,7 @@ app/
 
 ## LLM Provider Fallback (weight 순)
 
-1. OpenAI gpt-4.1-mini (weight 100, 데이터 공유 $0.60/일 budget cap)
+1. OpenAI gpt-4.1-mini (weight 100, 데이터 공유 인센티브 2.5M tok/일 무료 Tier 1-2, budget cap $0.60/일)
 2. Cerebras qwen-3-235b-a22b-instruct-2507 (weight 2, 무료 티어)
 3. Groq qwen/qwen3-32b (weight 1, 무료 티어)
 

@@ -4,7 +4,7 @@
 
 OpenAI gpt-4.1-mini (weight 100) → Cerebras (weight 2) → Groq (weight 1)
 
-OpenAI를 1순위로 사용하되 일일 budget cap ($0.60)으로 과금 제한. 초과 시 무료 provider로 fallback.
+OpenAI를 1순위로 사용. 데이터 공유 인센티브로 Tier 1-2 기준 일 2.5M 토큰 무료 (00:00 UTC 리셋). budget cap $0.60/일로 무료 초과분 과금 방지. 초과 시 무료 provider로 fallback.
 
 ## Provider 비교
 
@@ -14,9 +14,9 @@ OpenAI를 1순위로 사용하되 일일 budget cap ($0.60)으로 과금 제한.
 | **파라미터** | 비공개 | 235B 총 / 22B 활성 | 32B |
 | **RPM** | 500 (Tier 1) | 30 | 60 |
 | **TPM** | 200K | 30K | 6K |
-| **TPD** | 2.5M (Tier 1, 데이터 공유) | 1M | 500K |
+| **TPD** | 2.5M 무료 (Tier 1-2, 데이터 공유 인센티브) | 1M | 500K |
 | **Context** | 128K | 65,536 | — |
-| **과금 위험** | **있음** (카드 연결, budget cap $0.60/일) | 없음 (카드 미연결) | 없음 (카드 미연결) |
+| **과금 위험** | 2.5M/일 무료, 초과 시 유료 (budget cap $0.60/일) | 없음 (카드 미연결) | 없음 (카드 미연결) |
 | **비고** | 데이터 공유 opt-in 필수 | 프리뷰 — 안정성 변동 가능 | — |
 
 ## 비용 구조
@@ -25,11 +25,13 @@ OpenAI를 1순위로 사용하되 일일 budget cap ($0.60)으로 과금 제한.
 - 완전 무료. 카드 연결 없음.
 - 한도 초과 시 429 → 다음 provider로 fallback.
 
-### OpenAI (gpt-4.1-mini, Tier 1)
-- 데이터 공유 시 하루 2.5M 토큰 무료 (00:00 UTC 리셋).
-- 초과분은 유료 과금 (input $0.15/1M, output $0.60/1M).
+### OpenAI (gpt-4.1-mini, Tier 1-2)
+- 데이터 공유 인센티브: 일 2.5M 토큰 무료 (Tier 1-2, 00:00 UTC 리셋).
+  - Tier 3-5는 일 10M 토큰 무료.
+  - 대상 모델: gpt-4.1-mini, gpt-4.1-nano, gpt-4o-mini, gpt-5-mini, gpt-5-nano, o4-mini 등.
+- 초과분은 유료 과금 (input $0.40/1M, output $1.60/1M).
 - **hard limit이 존재하지 않음** — OpenAI가 알림만 보내고 차단 안 함.
-- litellm `max_budget: 0.60` + `budget_duration: "1d"`로 코드단에서 차단.
+- litellm `max_budget: 0.60` + `budget_duration: "1d"`로 코드단에서 차단 (무료 2.5M 초과 시 안전장치).
 
 ## Fallback 동작
 
@@ -58,14 +60,14 @@ OpenAI를 1순위로 사용하되 일일 budget cap ($0.60)으로 과금 제한.
 |----------|-------------|-----------------|
 | Cerebras | 1M | ~1,250건 |
 | Groq | 500K | ~625건 |
-| OpenAI | 2.5M (Tier 1) | ~3,000건 |
+| OpenAI | 2.5M 무료 (Tier 1-2) | ~3,000건 |
 | **합계** | **4M** | **~4,875건** |
 
 ## Tier 업그레이드 시
 
 OpenAI Tier 3-5로 올라가면:
-- 무료 토큰: 10M/일 → `max_budget`을 `2.50`으로 변경
-- 1순위로 올려도 됨 (과금 여유 확보 후)
+- 무료 토큰: 2.5M → 10M/일
+- `max_budget`을 `2.50` 이상으로 변경 가능 (10M × $0.40~$1.60 범위 고려)
 
 ## 설정 파일
 
