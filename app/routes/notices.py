@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from app.llm import router as llm_router
 
@@ -25,24 +25,35 @@ SYSTEM_PROMPT = """\
 
 주의: 채용설명회라도 사전등록·신청이 필요하면 반드시 action_required. event는 참석만 하면 되는 순수 행사에만 사용.
 
-## 날짜/시간 규칙
+## periods (기간/일시)
 
-- startDate: 활동·행사·신청이 시작되는 날.
+공지의 기간·일시 배열. 정보가 없으면 [].
+
+- 각 원소: {label, startDate, startTime, endDate, endTime}
+- 원소가 1개면 label은 null. 2개 이상이면 각 원소를 구분하는 짧은 label (예: "1차 신청", "2차 신청", "신입", "인턴")
+- startDate: 활동·행사·신청이 시작되는 날. 마감일만 있고 시작일이 불명확하면 null, endDate만 채울 것.
 - endDate: 마감·종료·만료일.
-- 마감일만 있고 시작일이 불명확하면 startDate는 null, endDate만 채울 것.
 - 당일 행사(설명회, 특강 등)는 startDate와 endDate가 같아도 정상.
-- 날짜는 YYYY-MM-DD, 시간은 HH:mm (24시간). 해당 정보가 없으면 null.
+- 날짜는 YYYY-MM-DD, 시간은 HH:mm (24시간). 없으면 null.
 - 본문에 연도가 명시되어 있지 않으면 게시일의 연도를 사용하세요.
 
 ## details
 
-모든 타입에서 모든 필드를 사용할 수 있음. 해당 정보가 본문에 명시적으로 없으면 반드시 null. 추측하거나 일반론을 쓰지 마세요.
+해당 정보가 본문에 명시적으로 없으면 반드시 null. 추측하거나 일반론을 쓰지 마세요.
 
 - target: 대상 (누구에게 해당하는지). "전체 학생", "재학생" 등 뻔하면 null
 - action: **학생이** 구체적으로 해야 할 일. 학교·기관의 조치는 action이 아님
-- location: 구체적 건물명·호실·주소만. "집", "온라인", "각자", "비대면" 등 비특정 장소는 반드시 null
 - host: 주관/주최
 - impact: 학생에게 미치는 영향 또는 대안
+
+## locations (장소)
+
+장소 배열. 정보가 없으면 [].
+
+- 각 원소: {label, detail}
+- detail: 구체적 건물명·호실·주소 (필수 문자열)
+- label: 원소가 1개면 null. 2개 이상이면 각 원소를 구분하는 짧은 label (예: "인사캠", "자과캠", "본선", "예선")
+- "집", "온라인", "각자", "비대면" 등 비특정 장소는 원소를 생략. 결과적으로 장소 정보가 하나도 없으면 [].
 
 ## oneLiner / summary
 
@@ -53,25 +64,44 @@ SYSTEM_PROMPT = """\
 
 입력: 제목: 안전교육 이수 안내 / 본문: 전체 재학생은 LMS에서 안전교육을 4월 20일까지 이수해야 합니다.
 ```json
-{"type":"action_required","oneLiner":"2026-04-20까지 안전교육 이수 필수","summary":"전체 재학생은 LMS에서 안전교육을 4월 20일까지 이수해야 해요. 미이수 시 수강신청이 제한될 수 있어요.","startDate":null,"startTime":null,"endDate":"2026-04-20","endTime":null,"details":{"target":"전체 재학생","action":"LMS에서 안전교육 이수","location":null,"host":null,"impact":null}}
+{"type":"action_required","oneLiner":"2026-04-20까지 안전교육 이수 필수","summary":"전체 재학생은 LMS에서 안전교육을 4월 20일까지 이수해야 해요. 미이수 시 수강신청이 제한될 수 있어요.","periods":[{"label":null,"startDate":null,"startTime":null,"endDate":"2026-04-20","endTime":null}],"locations":[],"details":{"target":"전체 재학생","action":"LMS에서 안전교육 이수","host":null,"impact":null}}
 ```
 
 입력: 제목: 2026-1학기 교육과정 로드맵 공개 / 본문: 교육과정 로드맵이 학과 홈페이지에 게시되었습니다.
 ```json
-{"type":"informational","oneLiner":"2026-1학기 교육과정 로드맵 공개","summary":"2026-1학기 교육과정 로드맵이 학과 홈페이지에 공개됐어요. 수강 계획 수립 시 참고하세요.","startDate":null,"startTime":null,"endDate":null,"endTime":null,"details":{"target":null,"action":null,"location":null,"host":null,"impact":"수강 계획 수립 시 참고"}}
+{"type":"informational","oneLiner":"2026-1학기 교육과정 로드맵 공개","summary":"2026-1학기 교육과정 로드맵이 학과 홈페이지에 공개됐어요. 수강 계획 수립 시 참고하세요.","periods":[],"locations":[],"details":{"target":null,"action":null,"host":null,"impact":"수강 계획 수립 시 참고"}}
 ```
 
 입력: 제목: 삼성전자 채용설명회 / 본문: 삼성전자에서 이공계 재학생 대상 채용설명회를 4월 15일 14시에 경영관 33101호에서 진행합니다. 캠퍼스 리크루팅 포털에서 사전 신청 필수.
 ```json
-{"type":"event","oneLiner":"2026-04-15 14:00 삼성전자 채용설명회","summary":"삼성전자에서 이공계 재학생 대상 채용설명회를 4월 15일 14시에 경영관 33101호에서 진행해요. 캠퍼스 리크루팅 포털에서 사전 신청이 필요해요.","startDate":"2026-04-15","startTime":"14:00","endDate":"2026-04-15","endTime":null,"details":{"target":"이공계 재학생","action":"사전 신청 필수 (캠퍼스 리크루팅 포털)","location":"경영관 33101호","host":"삼성전자","impact":null}}
+{"type":"event","oneLiner":"2026-04-15 14:00 삼성전자 채용설명회","summary":"삼성전자에서 이공계 재학생 대상 채용설명회를 4월 15일 14시에 경영관 33101호에서 진행해요. 캠퍼스 리크루팅 포털에서 사전 신청이 필요해요.","periods":[{"label":null,"startDate":"2026-04-15","startTime":"14:00","endDate":"2026-04-15","endTime":null}],"locations":[{"label":null,"detail":"경영관 33101호"}],"details":{"target":"이공계 재학생","action":"사전 신청 필수 (캠퍼스 리크루팅 포털)","host":"삼성전자","impact":null}}
+```
+
+입력: 제목: 2026-1학기 등록금 납부 안내 / 본문: 1차 납부기간 2월 10일~14일, 2차(추가) 납부기간 2월 24일~26일. 납부처: 인사캠 600주년기념관 재무팀, 자과캠 학생회관 재무팀.
+```json
+{"type":"action_required","oneLiner":"등록금 1차 2/10~14, 2차 2/24~26","summary":"2026-1학기 등록금을 1차(2월 10~14일) 또는 2차 추가기간(2월 24~26일)에 납부해야 해요. 인사캠·자과캠 재무팀에서 처리할 수 있어요.","periods":[{"label":"1차 납부","startDate":"2026-02-10","startTime":null,"endDate":"2026-02-14","endTime":null},{"label":"2차 추가납부","startDate":"2026-02-24","startTime":null,"endDate":"2026-02-26","endTime":null}],"locations":[{"label":"인사캠","detail":"600주년기념관 재무팀"},{"label":"자과캠","detail":"학생회관 재무팀"}],"details":{"target":null,"action":"등록금 납부","host":null,"impact":null}}
 ```"""
+
+
+class NoticePeriod(BaseModel):
+    """공지의 기간·일시 원소. 원소가 1개면 label은 null."""
+    label: str | None = None
+    startDate: str | None = None
+    startTime: str | None = None
+    endDate: str | None = None
+    endTime: str | None = None
+
+
+class NoticeLocation(BaseModel):
+    """공지의 장소 원소. detail은 구체적 건물명·호실·주소 (필수)."""
+    label: str | None = None
+    detail: str = Field(min_length=1)
 
 
 class NoticeDetails(BaseModel):
     """공지 메타. 모든 타입에서 사용 가능, 해당 없으면 null."""
     target: str | None = None
     action: str | None = None
-    location: str | None = None
     host: str | None = None
     impact: str | None = None
 
@@ -81,24 +111,25 @@ class NoticeSummary(BaseModel):
     oneLiner: str
     summary: str
     type: str
-    startDate: str | None = None
-    startTime: str | None = None
-    endDate: str | None = None
-    endTime: str | None = None
+    periods: list[NoticePeriod] = []
+    locations: list[NoticeLocation] = []
     details: NoticeDetails
 
     @model_validator(mode="after")
     def check_date_time_formats(self):
-        for field_name, pattern in [
-            ("startDate", DATE_RE),
-            ("endDate", DATE_RE),
-            ("startTime", TIME_RE),
-            ("endTime", TIME_RE),
-        ]:
-            value = getattr(self, field_name)
-            if value is not None and not pattern.match(value):
-                fmt = "YYYY-MM-DD" if "Date" in field_name else "HH:mm"
-                raise ValueError(f"{field_name}은 {fmt} 형식이어야 합니다. 받은 값: '{value}'")
+        for i, p in enumerate(self.periods):
+            for field_name, pattern in [
+                ("startDate", DATE_RE),
+                ("endDate", DATE_RE),
+                ("startTime", TIME_RE),
+                ("endTime", TIME_RE),
+            ]:
+                value = getattr(p, field_name)
+                if value is not None and not pattern.match(value):
+                    fmt = "YYYY-MM-DD" if "Date" in field_name else "HH:mm"
+                    raise ValueError(
+                        f"periods[{i}].{field_name}은 {fmt} 형식이어야 합니다. 받은 값: '{value}'"
+                    )
         return self
 
 
@@ -137,35 +168,46 @@ _FILLER_PATTERNS = re.compile(
 )
 
 
+_NONSPECIFIC_LOC = {"집", "온라인", "각자", "비대면", "자택"}
+
+
 def _guard_year(summary: NoticeSummary, pub_date: str | None) -> NoticeSummary:
-    """게시일 ±1년 벗어나는 연도를 교정. 범위 안이면 no-op. pub_date 없으면 no-op."""
+    """게시일 ±1년 벗어나는 연도를 각 period마다 교정. ±1년은 허용 (다음 학기 안내 등)."""
     if not pub_date:
         return summary
     pub_year = datetime.strptime(pub_date, "%Y-%m-%d").year
 
-    for field in ("startDate", "endDate"):
-        val = getattr(summary, field, None)
-        if not val:
-            continue
-        try:
-            dt = datetime.strptime(val, "%Y-%m-%d")
-        except ValueError:
-            continue
-        if abs(dt.year - pub_year) <= 1:
-            continue
-        corrected = dt.replace(year=pub_year)
-        setattr(summary, field, corrected.strftime("%Y-%m-%d"))
+    for period in summary.periods:
+        for field in ("startDate", "endDate"):
+            val = getattr(period, field, None)
+            if not val:
+                continue
+            try:
+                dt = datetime.strptime(val, "%Y-%m-%d")
+            except ValueError:
+                continue
+            if abs(dt.year - pub_year) <= 1:
+                continue
+            corrected = dt.replace(year=pub_year)
+            setattr(period, field, corrected.strftime("%Y-%m-%d"))
 
     return summary
 
 
 def _strip_fillers(summary: NoticeSummary) -> NoticeSummary:
-    """details 필드 중 filler 패턴을 null로 교정."""
+    """details filler를 null로, locations에서 빈/비특정/filler 원소를 제거."""
     if summary.details:
         for field_name in summary.details.model_fields:
             val = getattr(summary.details, field_name)
             if isinstance(val, str) and _FILLER_PATTERNS.match(val.strip()):
                 setattr(summary.details, field_name, None)
+    summary.locations = [
+        loc for loc in summary.locations
+        if loc.detail
+        and loc.detail.strip()
+        and loc.detail.strip() not in _NONSPECIFIC_LOC
+        and not _FILLER_PATTERNS.match(loc.detail.strip())
+    ]
     return summary
 
 
@@ -206,6 +248,7 @@ async def summarize_notice(req: SummarizeRequest):
                 return SummarizeResponse(**summary.model_dump(), model=model_name)
             return SummarizeResponse(
                 oneLiner="", summary="", type="unknown",
+                periods=[], locations=[],
                 details=NoticeDetails(), model=model_name,
             )
 
@@ -237,7 +280,8 @@ async def summarize_notice(req: SummarizeRequest):
 
 
 def _safe_summary(parsed: dict) -> dict:
-    """날짜/시간 필드를 제외하고 NoticeSummary에 안전하게 넣을 수 있는 dict 반환."""
+    """periods(날짜/시간)를 제외하고 NoticeSummary에 안전하게 넣을 수 있는 dict 반환.
+    locations는 검증 실패 원인이 아니므로 보존 시도."""
     details_raw = parsed.get("details") or {}
     if isinstance(details_raw, dict):
         details = NoticeDetails(**{
@@ -247,9 +291,22 @@ def _safe_summary(parsed: dict) -> dict:
     else:
         details = NoticeDetails()
 
+    safe_locations: list[NoticeLocation] = []
+    for raw_loc in parsed.get("locations") or []:
+        if not isinstance(raw_loc, dict):
+            continue
+        detail = raw_loc.get("detail")
+        if not isinstance(detail, str) or not detail.strip():
+            continue
+        safe_locations.append(
+            NoticeLocation(label=raw_loc.get("label"), detail=detail)
+        )
+
     return {
         "oneLiner": parsed.get("oneLiner", ""),
         "summary": parsed.get("summary", ""),
         "type": parsed.get("type", "unknown"),
+        "periods": [],
+        "locations": safe_locations,
         "details": details,
     }

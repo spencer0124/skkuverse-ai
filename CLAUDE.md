@@ -30,8 +30,16 @@ app/
 
 429 발생 → 1회 실패 후 5분 쿨다운 → 다음 provider로 fallback.
 공지 요약은 `response_format` (structured output)으로 JSON 스키마 강제.
-details 필드는 flat schema — type과 무관하게 모든 필드(target/action/location/host/impact) 사용 가능, 해당 없으면 null.
-후처리: `_guard_year`(게시일 ±1년 벗어나는 연도 교정), `_strip_fillers`(filler 패턴 null 교정).
+
+**응답 스키마** (`NoticeSummary`)
+- `periods: list[NoticePeriod]` — 기간/일시 배열. 각 원소 `{label, startDate, startTime, endDate, endTime}`. 정보 없으면 `[]`.
+- `locations: list[NoticeLocation]` — 장소 배열. 각 원소 `{label, detail}` (detail은 필수 문자열). 정보 없으면 `[]`.
+- `details: {target, action, host, impact}` — 모두 nullable. `location`은 top-level `locations`로 이동.
+- `label` 규칙: 원소 1개면 `null`, 2개 이상이면 각 원소 구분용 짧은 label (예: "1차 신청"/"2차 신청", "인사캠"/"자과캠").
+
+후처리
+- `_guard_year` — 게시일 ±1년 벗어나는 `periods[].startDate/endDate` 교정. ±1년은 허용 (다음 학기 안내 등).
+- `_strip_fillers` — `details` filler 패턴을 null로, `locations`에서 빈 문자열·비특정 장소(`집/온라인/각자/비대면/자택`)·filler 원소 제거.
 
 ## 개발 명령어
 
