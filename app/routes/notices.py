@@ -57,29 +57,34 @@ SYSTEM_PROMPT = """\
 
 ## oneLiner / summary
 
-- oneLiner: 50자 이내. "안내", "공고" 빼고, 날짜 포함. 제목을 그대로 쓰지 말고 날짜+핵심 압축.
+- oneLiner: 50자 이내. 부제목 칸에 들어가며, 제목 칸·마감일 칸과 같은 화면에 동시에 표시됩니다. 따라서:
+  1) 제목에 이미 있는 단어(주최사명·행사명·공지 유형)는 반복하지 마세요.
+  2) 날짜·시간·"까지"·"부터" 등 기간 표현은 쓰지 마세요. 날짜는 periods에 별도로 담깁니다.
+  3) 본문에서만 알 수 있는 핵심 정보를 씁니다: 대상(누가), 학생이 해야 할 행동(무엇을), 혜택·영향 중 학생에게 가장 의미 있는 1~2개를 골라 짧게.
+  4) 본문에 제목·마감일 외 정보가 거의 없으면 details.target/action/host/impact 중 학생 입장에서 가장 구체적이고 행동 가능한 하나를 골라 한 구절로 압축하세요. 학교 내부 절차·부서명 같은 학생에게 불필요한 정보는 쓰지 마세요.
+  5) "안내", "공고", "~드림" 같은 공지 상투어는 빼세요.
 - summary: 2~4문장. 해요체. 예: "~할 수 있어요.", "~진행돼요." 학생에게 중요한 정보 위주.
 
 ## 예시
 
 입력: 제목: 안전교육 이수 안내 / 본문: 전체 재학생은 LMS에서 안전교육을 4월 20일까지 이수해야 합니다.
 ```json
-{"type":"action_required","oneLiner":"2026-04-20까지 안전교육 이수 필수","summary":"전체 재학생은 LMS에서 안전교육을 4월 20일까지 이수해야 해요. 미이수 시 수강신청이 제한될 수 있어요.","periods":[{"label":null,"startDate":null,"startTime":null,"endDate":"2026-04-20","endTime":null}],"locations":[],"details":{"target":"전체 재학생","action":"LMS에서 안전교육 이수","host":null,"impact":null}}
+{"type":"action_required","oneLiner":"전체 재학생 LMS 필수 이수, 미이수 시 수강신청 제한","summary":"전체 재학생은 LMS에서 안전교육을 4월 20일까지 이수해야 해요. 미이수 시 수강신청이 제한될 수 있어요.","periods":[{"label":null,"startDate":null,"startTime":null,"endDate":"2026-04-20","endTime":null}],"locations":[],"details":{"target":"전체 재학생","action":"LMS에서 안전교육 이수","host":null,"impact":null}}
 ```
 
 입력: 제목: 2026-1학기 교육과정 로드맵 공개 / 본문: 교육과정 로드맵이 학과 홈페이지에 게시되었습니다.
 ```json
-{"type":"informational","oneLiner":"2026-1학기 교육과정 로드맵 공개","summary":"2026-1학기 교육과정 로드맵이 학과 홈페이지에 공개됐어요. 수강 계획 수립 시 참고하세요.","periods":[],"locations":[],"details":{"target":null,"action":null,"host":null,"impact":"수강 계획 수립 시 참고"}}
+{"type":"informational","oneLiner":"학과 홈페이지 게시, 수강 계획 수립 참고 자료","summary":"2026-1학기 교육과정 로드맵이 학과 홈페이지에 공개됐어요. 수강 계획 수립 시 참고하세요.","periods":[],"locations":[],"details":{"target":null,"action":null,"host":null,"impact":"수강 계획 수립 시 참고"}}
 ```
 
 입력: 제목: 삼성전자 채용설명회 / 본문: 삼성전자에서 이공계 재학생 대상 채용설명회를 4월 15일 14시에 경영관 33101호에서 진행합니다. 캠퍼스 리크루팅 포털에서 사전 신청 필수.
 ```json
-{"type":"event","oneLiner":"2026-04-15 14:00 삼성전자 채용설명회","summary":"삼성전자에서 이공계 재학생 대상 채용설명회를 4월 15일 14시에 경영관 33101호에서 진행해요. 캠퍼스 리크루팅 포털에서 사전 신청이 필요해요.","periods":[{"label":null,"startDate":"2026-04-15","startTime":"14:00","endDate":"2026-04-15","endTime":null}],"locations":[{"label":null,"detail":"경영관 33101호"}],"details":{"target":"이공계 재학생","action":"사전 신청 필수 (캠퍼스 리크루팅 포털)","host":"삼성전자","impact":null}}
+{"type":"event","oneLiner":"이공계 재학생 대상, 캠퍼스 리크루팅 포털 사전신청 필수","summary":"삼성전자에서 이공계 재학생 대상 채용설명회를 4월 15일 14시에 경영관 33101호에서 진행해요. 캠퍼스 리크루팅 포털에서 사전 신청이 필요해요.","periods":[{"label":null,"startDate":"2026-04-15","startTime":"14:00","endDate":"2026-04-15","endTime":null}],"locations":[{"label":null,"detail":"경영관 33101호"}],"details":{"target":"이공계 재학생","action":"사전 신청 필수 (캠퍼스 리크루팅 포털)","host":"삼성전자","impact":null}}
 ```
 
 입력: 제목: 2026-1학기 등록금 납부 안내 / 본문: 1차 납부기간 2월 10일~14일, 2차(추가) 납부기간 2월 24일~26일. 납부처: 인사캠 600주년기념관 재무팀, 자과캠 학생회관 재무팀.
 ```json
-{"type":"action_required","oneLiner":"등록금 1차 2/10~14, 2차 2/24~26","summary":"2026-1학기 등록금을 1차(2월 10~14일) 또는 2차 추가기간(2월 24~26일)에 납부해야 해요. 인사캠·자과캠 재무팀에서 처리할 수 있어요.","periods":[{"label":"1차 납부","startDate":"2026-02-10","startTime":null,"endDate":"2026-02-14","endTime":null},{"label":"2차 추가납부","startDate":"2026-02-24","startTime":null,"endDate":"2026-02-26","endTime":null}],"locations":[{"label":"인사캠","detail":"600주년기념관 재무팀"},{"label":"자과캠","detail":"학생회관 재무팀"}],"details":{"target":null,"action":"등록금 납부","host":null,"impact":null}}
+{"type":"action_required","oneLiner":"재학생 전체 대상, 고지서 확인 후 납부","summary":"2026-1학기 등록금을 1차(2월 10~14일) 또는 2차 추가기간(2월 24~26일)에 납부해야 해요. 인사캠·자과캠 재무팀에서 처리할 수 있어요.","periods":[{"label":"1차 납부","startDate":"2026-02-10","startTime":null,"endDate":"2026-02-14","endTime":null},{"label":"2차 추가납부","startDate":"2026-02-24","startTime":null,"endDate":"2026-02-26","endTime":null}],"locations":[{"label":"인사캠","detail":"600주년기념관 재무팀"},{"label":"자과캠","detail":"학생회관 재무팀"}],"details":{"target":null,"action":"등록금 납부","host":null,"impact":null}}
 ```"""
 
 

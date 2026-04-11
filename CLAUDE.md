@@ -32,6 +32,9 @@ app/
 공지 요약은 `response_format` (structured output)으로 JSON 스키마 강제.
 
 **응답 스키마** (`NoticeSummary`)
+- `oneLiner: str` — 50자 이내 부제목. 프런트에서 제목·마감일과 나란히 표시되므로 **제목 키워드와 날짜/시간/"까지"·"부터" 표현은 쓰지 않는다.** 본문에서만 알 수 있는 학생 관점의 핵심(대상·해야 할 행동·영향)을 압축. 학교 내부 부서·절차 같은 학생에게 불필요한 정보는 배제.
+- `summary: str` — 2~4문장 해요체 요약.
+- `type: str` — `action_required` / `event` / `informational`.
 - `periods: list[NoticePeriod]` — 기간/일시 배열. 각 원소 `{label, startDate, startTime, endDate, endTime}`. 정보 없으면 `[]`.
 - `locations: list[NoticeLocation]` — 장소 배열. 각 원소 `{label, detail}` (detail은 필수 문자열). 정보 없으면 `[]`.
 - `details: {target, action, host, impact}` — 모두 nullable. `location`은 top-level `locations`로 이동.
