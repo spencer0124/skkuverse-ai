@@ -13,7 +13,13 @@ sys.modules["app.llm"] = MagicMock()
 import litellm
 
 # ── 시스템 프롬프트 (notices.py에서 가져옴) ──
-from app.routes.notices import SYSTEM_PROMPT, NoticeSummary, _guard_year, _strip_fillers
+from app.routes.notices import (
+    SYSTEM_PROMPT,
+    NoticeSummary,
+    _detect_language,
+    _guard_year,
+    _strip_fillers,
+)
 
 PROVIDERS = {
     "cerebras": {
@@ -149,12 +155,33 @@ CASES = [
         "expected_startDate": None,
         "expected_endDate": "2026-04-16",
     },
+    {
+        "name": "Case EN-1: Dorm Check-in",
+        "input": {
+            "title": "Spring 2026 Dormitory Check-in Guide",
+            "category": "생활관",
+            "cleanText": (
+                "Spring 2026 check-in for new residents runs Feb 28 to Mar 2, "
+                "09:00-18:00 at the Front Desk (Myeongnyun Hall). Late arrivals "
+                "after Mar 2 must report to the Resident Manager's office on the "
+                "1st floor. Bring your student ID and ARC."
+            ),
+            "date": "2026-02-15",
+        },
+        "expected_year": 2026,
+        "expected_startDate": "2026-02-28",
+        "expected_endDate": "2026-03-02",
+    },
 ]
 
 
 def _build_user_prompt(case_input: dict) -> str:
+    lang = _detect_language(case_input.get("cleanText", ""), case_input.get("title", ""))
     date_line = f"게시일: {case_input['date']}\n" if case_input.get("date") else ""
-    return f"{date_line}제목: {case_input['title']}\n카테고리: {case_input['category']}\n본문:\n{case_input['cleanText']}"
+    return (
+        f"[LANG: {lang}]\n"
+        f"{date_line}제목: {case_input['title']}\n카테고리: {case_input['category']}\n본문:\n{case_input['cleanText']}"
+    )
 
 
 def _parse_response(raw: str) -> dict | None:

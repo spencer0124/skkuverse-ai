@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import datetime
 
@@ -6,6 +7,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from app.llm import router as llm_router
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -16,6 +19,19 @@ MAX_FORMAT_RETRIES = 1
 
 SYSTEM_PROMPT = """\
 대학교 공지사항 요약 AI.
+
+## 출력 언어
+
+user message 맨 위 `[LANG: ko]` 또는 `[LANG: en]` 태그를 반드시 따르세요.
+
+- `[LANG: ko]`: oneLiner / summary / details.target·action·host·impact / periods[].label / locations[].label 을 한국어로. summary는 해요체.
+- `[LANG: en]`: 위 필드를 자연스러운 영어로. summary는 친근한 평서문 (예: "Residents can ...", "The event runs from ...").
+- 다음은 언어와 무관하게 원본 형태 유지:
+  · periods[].startDate / startTime / endDate / endTime (YYYY-MM-DD / HH:mm)
+  · locations[].detail (건물명·호실은 번역하지 않음. 한국어 본문이면 한국어, 영어 본문이면 영어 원문 그대로)
+  · type enum (action_required / event / informational)
+- 본문의 고유명사(인명·회사명·제품명·건물명)는 어느 언어에서도 번역하지 마세요.
+- 영어 출력에서 "Notice:", "Announcement:", "FYI:" 같은 공지 상투어는 쓰지 마세요.
 
 ## 타입 판별
 
@@ -62,8 +78,8 @@ SYSTEM_PROMPT = """\
   2) 날짜·시간·"까지"·"부터" 등 기간 표현은 쓰지 마세요. 날짜는 periods에 별도로 담깁니다.
   3) 본문에서만 알 수 있는 핵심 정보를 씁니다: 대상(누가), 학생이 해야 할 행동(무엇을), 혜택·영향 중 학생에게 가장 의미 있는 1~2개를 골라 짧게.
   4) 본문에 제목·마감일 외 정보가 거의 없으면 details.target/action/host/impact 중 학생 입장에서 가장 구체적이고 행동 가능한 하나를 골라 한 구절로 압축하세요. 학교 내부 절차·부서명 같은 학생에게 불필요한 정보는 쓰지 마세요.
-  5) "안내", "공고", "~드림" 같은 공지 상투어는 빼세요.
-- summary: 2~4문장. 해요체. 예: "~할 수 있어요.", "~진행돼요." 학생에게 중요한 정보 위주.
+  5) 한국어: "안내", "공고", "~드림" 같은 공지 상투어는 빼세요. 영어: "Notice", "Announcement", "FYI", "Reminder:" 같은 상투어도 똑같이 빼세요.
+- summary: 2~4문장. [LANG: ko]면 해요체 ("~할 수 있어요.", "~진행돼요."), [LANG: en]이면 친근한 평서문. 학생에게 중요한 정보 위주.
 
 ## 예시
 
@@ -85,6 +101,17 @@ SYSTEM_PROMPT = """\
 입력: 제목: 2026-1학기 등록금 납부 안내 / 본문: 1차 납부기간 2월 10일~14일, 2차(추가) 납부기간 2월 24일~26일. 납부처: 인사캠 600주년기념관 재무팀, 자과캠 학생회관 재무팀.
 ```json
 {"type":"action_required","oneLiner":"재학생 전체 대상, 고지서 확인 후 납부","summary":"2026-1학기 등록금을 1차(2월 10~14일) 또는 2차 추가기간(2월 24~26일)에 납부해야 해요. 인사캠·자과캠 재무팀에서 처리할 수 있어요.","periods":[{"label":"1차 납부","startDate":"2026-02-10","startTime":null,"endDate":"2026-02-14","endTime":null},{"label":"2차 추가납부","startDate":"2026-02-24","startTime":null,"endDate":"2026-02-26","endTime":null}],"locations":[{"label":"인사캠","detail":"600주년기념관 재무팀"},{"label":"자과캠","detail":"학생회관 재무팀"}],"details":{"target":null,"action":"등록금 납부","host":null,"impact":null}}
+```
+
+입력:
+[LANG: en]
+게시일: 2026-02-15
+제목: Spring 2026 Dormitory Check-in Guide
+카테고리: 생활관
+본문:
+Spring 2026 check-in for new residents runs Feb 28 to Mar 2, 09:00-18:00 at the Front Desk (Myeongnyun Hall). Late arrivals after Mar 2 must report to the Resident Manager's office on the 1st floor. Bring your student ID and ARC.
+```json
+{"type":"action_required","oneLiner":"New residents must bring student ID and ARC to check in","summary":"New residents check in at the Myeongnyun Hall Front Desk from Feb 28 to Mar 2, 09:00-18:00. Arrivals after Mar 2 should report to the Resident Manager's office on the 1st floor. Remember to bring your student ID and ARC.","periods":[{"label":"Check-in window","startDate":"2026-02-28","startTime":"09:00","endDate":"2026-03-02","endTime":"18:00"}],"locations":[{"label":"Check-in","detail":"Myeongnyun Hall Front Desk"},{"label":"Late arrival","detail":"Resident Manager's office, 1F"}],"details":{"target":"New residents","action":"Check in with student ID and ARC","host":null,"impact":"Late arrivals report to Resident Manager's office"}}
 ```"""
 
 
@@ -149,6 +176,23 @@ class SummarizeResponse(NoticeSummary):
     model: str | None = None
 
 
+_HANGUL_RE = re.compile(r"[\uac00-\ud7a3]")
+_ALPHA_RE = re.compile(r"[A-Za-z\uac00-\ud7a3]")
+
+
+def _detect_language(*texts: str) -> str:
+    """본문/제목을 순서대로 훑어 Hangul 비율 ≥10%면 'ko', 아니면 'en'.
+    모든 입력이 공백/빈 문자열이면 기본값 'ko'."""
+    combined = " ".join(t for t in texts if t).strip()
+    if not combined:
+        return "ko"
+    alpha = _ALPHA_RE.findall(combined)
+    if not alpha:
+        return "ko"
+    hangul_ratio = len(_HANGUL_RE.findall(combined)) / len(alpha)
+    return "ko" if hangul_ratio >= 0.1 else "en"
+
+
 def _parse_llm_json(raw: str) -> dict | None:
     """LLM 응답에서 JSON 추출. <think>, ```json```, 기타 wrapper 처리."""
     cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
@@ -168,12 +212,25 @@ def _parse_llm_json(raw: str) -> dict | None:
 
 
 _FILLER_PATTERNS = re.compile(
-    r"^(없음|해당\s*없음|특별한\s*(영향|사항)\s*없음|없습니다|N/?A)$",
+    r"^(없음|해당\s*없음|특별한\s*(영향|사항)\s*없음|없습니다"
+    r"|N/?A|none|not\s*applicable|no\s*(impact|effect|host))$",
     re.IGNORECASE,
 )
 
 
-_NONSPECIFIC_LOC = {"집", "온라인", "각자", "비대면", "자택"}
+# 비특정 장소 — locations 원소에서 제거 대상.
+# 모든 항목은 반드시 lowercase. 비교 시 .strip().lower() 기준.
+_NONSPECIFIC_LOC = {
+    "집", "온라인", "각자", "비대면", "자택",
+    "home", "online", "remote", "tba", "tbd", "n/a",
+    "each student", "your room", "anywhere",
+}
+
+
+_ONELINER_PREFIX_RE = re.compile(
+    r"^\s*(notice|announcement|fyi|reminder|공지|안내|알림)\s*[:\-–—]\s*",
+    re.IGNORECASE,
+)
 
 
 def _guard_year(summary: NoticeSummary, pub_date: str | None) -> NoticeSummary:
@@ -210,16 +267,50 @@ def _strip_fillers(summary: NoticeSummary) -> NoticeSummary:
         loc for loc in summary.locations
         if loc.detail
         and loc.detail.strip()
-        and loc.detail.strip() not in _NONSPECIFIC_LOC
+        and loc.detail.strip().lower() not in _NONSPECIFIC_LOC
         and not _FILLER_PATTERNS.match(loc.detail.strip())
     ]
     return summary
 
 
+def _strip_oneliner_prefix(summary: NoticeSummary) -> NoticeSummary:
+    """oneLiner 앞에 붙은 'Notice:', 'Announcement:', '공지:' 등 상투어 prefix 제거."""
+    summary.oneLiner = _ONELINER_PREFIX_RE.sub("", summary.oneLiner).strip()
+    return summary
+
+
+def _enforce_language(
+    summary: NoticeSummary, lang: str, model_name: str | None
+) -> None:
+    """출력 언어 misalignment 감지 — warning 로그만 남기고 반환값 없음."""
+    combined = f"{summary.oneLiner} {summary.summary}"
+    alpha = _ALPHA_RE.findall(combined)
+    hangul_ratio = (
+        len(_HANGUL_RE.findall(combined)) / len(alpha) if alpha else 0
+    )
+
+    if lang == "en" and hangul_ratio > 0:
+        log.warning(
+            "lang_mismatch: expected=en but output contains Hangul "
+            "(ratio=%.2f, model=%s, oneLiner=%r)",
+            hangul_ratio, model_name, summary.oneLiner,
+        )
+    elif lang == "ko" and alpha and hangul_ratio < 0.1:
+        log.warning(
+            "lang_mismatch: expected=ko but output is mostly non-Korean "
+            "(ratio=%.2f, model=%s, oneLiner=%r)",
+            hangul_ratio, model_name, summary.oneLiner,
+        )
+
+
 @router.post("/api/notices/summarize", response_model=SummarizeResponse)
 async def summarize_notice(req: SummarizeRequest):
+    lang = _detect_language(req.cleanText, req.title)
     date_line = f"게시일: {req.date}\n" if req.date else ""
-    user_prompt = f"{date_line}제목: {req.title}\n카테고리: {req.category}\n본문:\n{req.cleanText}"
+    user_prompt = (
+        f"[LANG: {lang}]\n"
+        f"{date_line}제목: {req.title}\n카테고리: {req.category}\n본문:\n{req.cleanText}"
+    )
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -250,6 +341,8 @@ async def summarize_notice(req: SummarizeRequest):
                 summary = NoticeSummary(**_safe_summary(last_valid_parsed))
                 summary = _guard_year(summary, req.date)
                 summary = _strip_fillers(summary)
+                summary = _strip_oneliner_prefix(summary)
+                _enforce_language(summary, lang, model_name)
                 return SummarizeResponse(**summary.model_dump(), model=model_name)
             return SummarizeResponse(
                 oneLiner="", summary="", type="unknown",
@@ -263,6 +356,8 @@ async def summarize_notice(req: SummarizeRequest):
             summary = NoticeSummary.model_validate(parsed)
             summary = _guard_year(summary, req.date)
             summary = _strip_fillers(summary)
+            summary = _strip_oneliner_prefix(summary)
+            _enforce_language(summary, lang, model_name)
             return SummarizeResponse(**summary.model_dump(), model=model_name)
         except ValidationError as ve:
             if attempt < MAX_FORMAT_RETRIES:
@@ -281,6 +376,8 @@ async def summarize_notice(req: SummarizeRequest):
     summary = NoticeSummary(**_safe_summary(last_valid_parsed))
     summary = _guard_year(summary, req.date)
     summary = _strip_fillers(summary)
+    summary = _strip_oneliner_prefix(summary)
+    _enforce_language(summary, lang, model_name)
     return SummarizeResponse(**summary.model_dump(), model=model_name)
 
 

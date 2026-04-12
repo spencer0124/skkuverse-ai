@@ -39,6 +39,7 @@ app/
 - `locations: list[NoticeLocation]` — 장소 배열. 각 원소 `{label, detail}` (detail은 필수 문자열). 정보 없으면 `[]`.
 - `details: {target, action, host, impact}` — 모두 nullable. `location`은 top-level `locations`로 이동.
 - `label` 규칙: 원소 1개면 `null`, 2개 이상이면 각 원소 구분용 짧은 label (예: "1차 신청"/"2차 신청", "인사캠"/"자과캠").
+- 출력 언어: 본문 Hangul 비율 ≥10%면 한국어, 아니면 영어로 `oneLiner`/`summary`/`details.*`/`*.label` 생성. 날짜·`locations[].detail`·`type`은 언어 무관 원본 유지. 감지 결과는 user prompt 맨 위 `[LANG: ko|en]` 태그로 LLM에 전달.
 
 후처리
 - `_guard_year` — 게시일 ±1년 벗어나는 `periods[].startDate/endDate` 교정. ±1년은 허용 (다음 학기 안내 등).
