@@ -238,7 +238,17 @@ def _guard_year(summary: NoticeSummary, pub_date: str | None) -> NoticeSummary:
     """게시일 ±1년 벗어나는 연도를 각 period마다 교정. ±1년은 허용 (다음 학기 안내 등)."""
     if not pub_date:
         return summary
-    pub_year = datetime.strptime(pub_date, "%Y-%m-%d").year
+    # Some crawler sources (e.g. ecostat-undergrad) emit "YYYY-MM-DD HH:MM"
+    # instead of plain "YYYY-MM-DD". The first 10 chars are always the date
+    # prefix per ISO 8601 — same approach as the RN app's normalizeNoticeDate
+    # in packages/shared/src/notices/parser.ts. We only need the year here.
+    try:
+        pub_year = datetime.strptime(pub_date[:10], "%Y-%m-%d").year
+    except ValueError:
+        # Garbage date prefix — skip year guard but keep the AI summary intact.
+        # AI summary value > year-correction value; failing the whole route
+        # because of one malformed input field is the wrong tradeoff.
+        return summary
 
     for period in summary.periods:
         for field in ("startDate", "endDate"):
