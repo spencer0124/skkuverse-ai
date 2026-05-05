@@ -144,3 +144,33 @@ def test_multi_period_year_fix():
     assert s.periods[1].startDate == "2026-02-24"
     assert s.periods[1].endDate == "2026-02-26"
     assert s.periods[1].label == "2차 추가납부"
+
+
+# ── pub_date 형식 관용성 (crawler가 emit하는 변종 수용) ──
+# 일부 source (예: ecostat-undergrad)가 "YYYY-MM-DD HH:MM" 형식으로 보냄.
+# RN app의 normalizeNoticeDate (packages/shared/src/notices/parser.ts:50-59)
+# 패턴과 동일한 첫-10자 slicing.
+
+def test_tolerates_trailing_time_space_separator():
+    s = _guard_year(_make("2024-04-01", "2024-04-20"), "2026-04-09 14:13")
+    assert _sd(s) == "2026-04-01"
+    assert _ed(s) == "2026-04-20"
+
+
+def test_tolerates_iso_t_separator():
+    s = _guard_year(_make("2024-04-01"), "2026-04-09T14:13:00Z")
+    assert _sd(s) == "2026-04-01"
+
+
+def test_skips_guard_on_unparseable_date_without_raising():
+    # Garbage 입력 — 함수가 raise 안 하고 summary를 변경 없이 반환.
+    # AI summary value > year-correction value.
+    s = _guard_year(_make("2024-04-01", "2024-04-20"), "not-a-real-date")
+    assert _sd(s) == "2024-04-01"
+    assert _ed(s) == "2024-04-20"
+
+
+def test_skips_guard_on_short_garbage():
+    # 10자 미만 garbage도 안전하게 스킵.
+    s = _guard_year(_make("2024-04-01"), "abc")
+    assert _sd(s) == "2024-04-01"
