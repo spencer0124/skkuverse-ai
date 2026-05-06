@@ -1,7 +1,11 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.llm import router as llm_router
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -33,4 +37,13 @@ async def chat_completions(req: ChatRequest):
         response = await llm_router.acompletion(**kwargs)
         return response.model_dump()
     except Exception as e:
+        # Diagnostic logging before silent 502 — pre-2026-05-06 incident lesson.
+        # Without this, the actual exception detail is only in the 502 response
+        # body and never visible in container logs (uvicorn logs status only).
+        log.warning(
+            "llm_router.acompletion failed type=%s status=%s msg=%s",
+            type(e).__name__,
+            getattr(e, "status_code", None),
+            str(e)[:1500],
+        )
         raise HTTPException(status_code=502, detail=str(e))

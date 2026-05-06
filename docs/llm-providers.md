@@ -4,7 +4,7 @@
 
 OpenAI gpt-4.1-mini (weight 100) → Cerebras (weight 2) → Groq (weight 1)
 
-OpenAI를 1순위로 사용. 데이터 공유 인센티브로 Tier 1-2 기준 일 2.5M 토큰 무료 (00:00 UTC 리셋). budget cap $0.60/일로 무료 초과분 과금 방지. 초과 시 무료 provider로 fallback.
+OpenAI를 1순위로 사용. 데이터 공유 인센티브로 Tier 1-2 기준 일 2.5M 토큰 무료 (00:00 UTC 리셋). budget cap $5.00/일로 무료 초과분 과금 방지 + spike 흡수. 초과 시 무료 provider로 fallback.
 
 ## Provider 비교
 
@@ -16,7 +16,7 @@ OpenAI를 1순위로 사용. 데이터 공유 인센티브로 Tier 1-2 기준 �
 | **TPM** | 200K | 30K | 6K |
 | **TPD** | 2.5M 무료 (Tier 1-2, 데이터 공유 인센티브) | 1M | 500K |
 | **Context** | 128K | 65,536 | — |
-| **과금 위험** | 2.5M/일 무료, 초과 시 유료 (budget cap $0.60/일) | 없음 (카드 미연결) | 없음 (카드 미연결) |
+| **과금 위험** | 2.5M/일 무료, 초과 시 유료 (budget cap $5.00/일) | 없음 (카드 미연결) | 없음 (카드 미연결) |
 | **비고** | 데이터 공유 opt-in 필수 | 프리뷰 — 안정성 변동 가능 | — |
 
 ## 비용 구조
@@ -31,7 +31,21 @@ OpenAI를 1순위로 사용. 데이터 공유 인센티브로 Tier 1-2 기준 �
   - 대상 모델: gpt-4.1-mini, gpt-4.1-nano, gpt-4o-mini, gpt-5-mini, gpt-5-nano, o4-mini 등.
 - 초과분은 유료 과금 (input $0.40/1M, output $1.60/1M).
 - **hard limit이 존재하지 않음** — OpenAI가 알림만 보내고 차단 안 함.
-- litellm `max_budget: 0.60` + `budget_duration: "1d"`로 코드단에서 차단 (무료 2.5M 초과 시 안전장치).
+- litellm `max_budget: 5.00` + `budget_duration: "1d"`로 코드단에서 차단 (무료 2.5M 초과 시 안전장치).
+
+## Daily budget reset (calendar-aligned, 2026-05-06 추가)
+
+litellm Router의 `budget_duration: "1d"` 윈도우는 **첫 호출 timestamp + 24h** 기준으로 회전 — 캘린더 자정과 정렬 안 됨. 그래서 OpenAI의 무료 quota는 00:00 UTC에 reset되는데 litellm 내부 spend counter는 다른 시각에 회전 → drift 발생.
+
+2026-05-05 incident: cap이 ~12:20 UTC에 활성화되어 12+시간 동안 stuck (OpenAI 무료 quota는 00:00 UTC에 풀렸지만 litellm의 in-memory counter는 ~03:20 UTC = 어제 첫 호출 +24h에 자연 회전).
+
+**Defense-in-depth 두 겹**:
+
+1. **Path A (in-process, 무중단)** — `app/budget_reset.py`의 `reset_deployment_budgets()`를 APScheduler가 매일 **00:00 UTC**에 호출. litellm DualCache의 두 키 (`deployment_spend:{id}:{duration}`, `deployment_budget_start_time:{id}`) 직접 클리어 → 다음 호출에 자동 재초기화.
+
+2. **Path B (host-level, ~3초 다운타임)** — Oracle VM crontab의 `5 0 * * * /usr/bin/docker restart skkuverse-ai-ai-1` (CRON_TZ=UTC, 00:05 UTC). Path A 실패 시 안전망 + 메모리 누수 등 다른 in-process drift도 cover.
+
+Path A의 risk: litellm internal cache key 포맷 (`deployment_spend:{id}:{duration}` 등) private API. 1.82.6에서 line-by-line 검증됨 (`router_strategy/budget_limiter.py:453-454`). litellm 업그레이드 시 키 포맷 재검증 필수 — `tests/test_budget_reset.py`가 invariant로 박아둠.
 
 ## Fallback 동작
 
