@@ -12,6 +12,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # app/generated/ holds copies of config owned by skkuverse-crawler.
+      # Both contracts (search.config, search.source-whitelist) are still
+      # `planned`, so today this reports the gap and passes — which is the
+      # point: an unbuilt seam stays visible in every CI run instead of only
+      # in app/generated/README.md. It starts enforcing the moment the crawler
+      # ships search.json and the manifest flips them to `active`.
+      - name: Fetch contract tooling
+        run: git clone --depth 1 https://github.com/spencer0124/skkuverse "$RUNNER_TEMP/sv"
+      - name: Contract integrity
+        run: python3 "$RUNNER_TEMP/sv/tools/skkuverse_sync.py" check --repo ai --root .
       - run: pip install -r requirements.txt
       - run: pip install ruff
       - run: ruff check app/
