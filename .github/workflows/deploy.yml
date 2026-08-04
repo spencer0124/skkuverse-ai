@@ -9,7 +9,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # This workflow had no gate of any kind — a push to main went straight to
+  # SSH. The contract check is a cheap first one: offline, seconds, and it
+  # verifies that app/generated/ still matches what this repo committed.
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch contract tooling
+        run: git clone --depth 1 https://github.com/spencer0124/skkuverse "$RUNNER_TEMP/sv"
+      - name: Contract integrity
+        run: python3 "$RUNNER_TEMP/sv/tools/skkuverse_sync.py" check --repo ai --root .
+
   deploy:
+    needs: [contracts]
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH

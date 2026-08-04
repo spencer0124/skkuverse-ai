@@ -12,7 +12,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # app/generated/ holds copies of config owned by skkuverse-crawler.
+      # Both contracts (search.config, search.source-whitelist) are still
+      # `planned`, so today this reports the gap and passes — which is the
+      # point: an unbuilt seam stays visible in every CI run instead of only
+      # in app/generated/README.md. It starts enforcing the moment the crawler
+      # ships search.json and the manifest flips them to `active`.
+      - name: Fetch contract tooling
+        run: git clone --depth 1 https://github.com/spencer0124/skkuverse "$RUNNER_TEMP/sv"
+      - name: Contract integrity
+        run: python3 "$RUNNER_TEMP/sv/tools/skkuverse_sync.py" check --repo ai --root .
       - run: pip install -r requirements.txt
-      - run: pip install ruff
+      # Pinned. Unpinned, CI installed whatever ruff had shipped that morning:
+      # 0.16.1 turned on BLE001/DTZ007/TRY401 by default and this job started
+      # failing with zero commits to the repo. Lint results have to be a
+      # function of the code, not of the release calendar.
+      #
+      # Adopting those rules is a real decision — the blind-except handlers
+      # they flag were added deliberately after the 2026-05-06 silent-502
+      # incident — so it belongs in its own PR, not in a version bump nobody
+      # chose. Bump this line to make that choice explicitly.
+      - run: pip install ruff==0.15.9
       - run: ruff check app/
       - run: docker build -t skkuverse-ai .
